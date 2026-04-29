@@ -1,0 +1,214 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/wine_list_app/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String?
+  email           String    @unique
+  password        String
+  role            String    @default("admin") // admin, mesero
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Wine {
+  id              String   @id @default(cuid())
+  name            String
+  type            String   // Tinto, Blanco, Rosado, Espumoso, Dulce
+  country         String
+  region          String
+  grape           String   // cepa
+  classification  String?  // Reserva, Crianza, Gran Reserva, etc.
+  vintage         String?  // añada
+  price           Float
+  costPrice       Float    @default(0)  // precio de costo
+  stock           Int      @default(0)
+  minStock        Int      @default(3)
+  avgConsumption  Int      @default(6)  // promedio de consumo / cantidad a pedir
+  imageUrl        String?
+  cloudStoragePath String?
+  isPublicImage   Boolean  @default(true)
+  description     String?
+  tastingNotes    String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  requests        WineRequest[]
+  orderItems      PurchaseOrderItem[]
+  adjustments     InventoryAdjustment[]
+  pairings        DishWinePairing[]
+  specials        Special[]
+  physicalCounts  PhysicalInventoryCount[] @relation("PhysicalCounts")
+  premiumMenuPairings  MenuPairing[] @relation("MenuPairingPremium")
+  mediumMenuPairings   MenuPairing[] @relation("MenuPairingMedium")
+  economicMenuPairings MenuPairing[] @relation("MenuPairingEconomic")
+
+  @@index([type])
+  @@index([country])
+  @@index([stock])
+}
+
+// Solicitud de vino por un invitado (mesa)
+model WineRequest {
+  id               String   @id @default(cuid())
+  wineId           String
+  wine             Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  tableName        String   @default("Mesa") // nombre o número de mesa
+  quantity         Int      @default(1)
+  status           String   @default("pending_approval") // pending_approval, approved, rejected, confirmed
+  notes            String?
+  approvalStatus   String   @default("waiting") // waiting, approved, rejected
+  approvedAt       DateTime?
+  approvedBy       String?  // ID del mesero que aprobó
+  confirmedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([tableName])
+}
+
+// Orden de compra / pedido a proveedor
+model PurchaseOrder {
+  id        String   @id @default(cuid())
+  status    String   @default("draft") // draft, sent
+  notes     String?
+  items     PurchaseOrderItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  wineId          String
+  wine            Wine          @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  quantity        Int
+  createdAt       DateTime      @default(now())
+
+  @@index([purchaseOrderId])
+}
+
+// Registro de ajustes de inventario (incrementos y decrementos)
+model InventoryAdjustment {
+  id        String   @id @default(cuid())
+  wineId    String
+  wine      Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  type      String   // "increase" o "decrease"
+  quantity  Int
+  reason    String?  // razón del cambio (solo obligatoria para decrease)
+  notes     String?
+  createdAt DateTime @default(now())
+  
+  @@index([wineId])
+  @@index([createdAt])
+}
+
+// Platillo para maridaje
+model Dish {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  imageUrl        String?
+  cloudStoragePath String?
+  isPublicImage   Boolean  @default(true)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pairings        DishWinePairing[]
+
+  @@index([active])
+}
+
+// Asociación entre platillos y vinos (many-to-many)
+model DishWinePairing {
+  id        String   @id @default(cuid())
+  dishId    String
+  dish      Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  wineId    String
+  wine      Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  notes     String?  // notas sobre por qué marida bien
+  createdAt DateTime @default(now())
+
+  @@unique([dishId, wineId])
+  @@index([wineId])
+}
+
+// Especial de la semana/mes
+model Special {
+  id              String   @id @default(cuid())
+  wineId          String
+  wine            Wine     @relation(fields: [wineId], references: [id], onDelete: Cascade)
+  title           String   // ej: "Especial de la Semana"
+  description     String?
+  discount        Float?   // porcentaje de descuento (opcional)
+  startDate       DateTime
+  endDate         DateTime
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([active])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// Conteo físico de inventario
+model PhysicalInventoryCount {
+  id               String   @id @default(cuid())
+  wineId           String
+  wine             Wine     @relation("PhysicalCounts", fields: [wineId], references: [id], onDelete: Cascade)
+  physicalCount    Int      // cantidad contada físicamente
+  systemStock      Int      // stock en el sistema al momento del conteo
+  difference       Int      // physicalCount - systemStock
+  notes            String?  // notas sobre discrepancias
+  createdAt        DateTime @default(now())
+
+  @@index([wineId])
+  @@index([createdAt])
+}
+
+// Maridaje de platillo con 3 vinos recomendados (premium, medio, económico)
+model MenuPairing {
+  id              String   @id @default(cuid())
+  dishName        String   @unique  // nombre del platillo
+  dishDescription String?
+  dishImageUrl    String?  // foto del platillo
+  premiumWineId   String
+  premiumWine     Wine     @relation("MenuPairingPremium", fields: [premiumWineId], references: [id], onDelete: Cascade)
+  mediumWineId    String
+  mediumWine      Wine     @relation("MenuPairingMedium", fields: [mediumWineId], references: [id], onDelete: Cascade)
+  economicWineId  String
+  economicWine    Wine     @relation("MenuPairingEconomic", fields: [economicWineId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([dishName])
+}
+
+model Settings {
+  id                      String  @id @default("default")
+  restaurantName          String  @default("La Vinoteca")
+  logoUrl                 String?
+  cloudStoragePath        String?
+  isPublicLogo            Boolean @default(true)
+  backgroundImageUrl      String?
+  backgroundCloudStoragePath String?
+  isPublicBackground      Boolean @default(true)
+  primaryColor            String  @default("#8B6914")
+  secondaryColor          String  @default("#1A1A2E")
+  accentColor             String  @default("#D4AF37")
+  updatedAt               DateTime @updatedAt
+}
